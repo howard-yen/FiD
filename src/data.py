@@ -109,7 +109,7 @@ class Collator(object):
         target_ids = target_ids.masked_fill(~target_mask, -100)
 
         def append_question(example):
-            if example['passages'] is None:
+            if example['passages'] is None or len(example["passages"]) == 0:
                 return [example['question']]
             return [example['question'] + " " + t for t in example['passages']]
         text_passages = [append_question(example) for example in batch]
