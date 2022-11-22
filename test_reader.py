@@ -1,6 +1,6 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 # All rights reserved.
-# 
+#
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -10,6 +10,7 @@ import numpy as np
 from pathlib import Path
 import torch.distributed as dist
 from torch.utils.data import DataLoader, SequentialSampler
+from tqdm import tqdm
 
 
 import src.slurm
@@ -26,14 +27,16 @@ def evaluate(model, dataset, dataloader, tokenizer, opt):
         model = model.module
     if opt.write_crossattention_scores:
         model.overwrite_forward_crossattention()
-        model.reset_score_storage() 
+        model.reset_score_storage()
     total = 0
     exactmatch = []
+    f1s = []
+    rouges = []
     if opt.write_results:
         write_path = Path(opt.checkpoint_dir) / opt.name / 'test_results'
         fw = open(write_path / ('%d.txt'%opt.global_rank), 'a')
     with torch.no_grad():
-        for i, batch in enumerate(dataloader):
+        for i, batch in enumerate(tqdm(dataloader)):
             (idx, _, _, context_ids, context_mask) = batch
 
             if opt.write_crossattention_scores:
@@ -42,7 +45,7 @@ def evaluate(model, dataset, dataloader, tokenizer, opt):
             outputs = model.generate(
                 input_ids=context_ids.cuda(),
                 attention_mask=context_mask.cuda(),
-                max_length=50,
+                max_length=opt.output_maxlength,
             )
 
             if opt.write_crossattention_scores:
@@ -52,8 +55,23 @@ def evaluate(model, dataset, dataloader, tokenizer, opt):
                 ans = tokenizer.decode(o, skip_special_tokens=True)
                 example = dataset.data[idx[k]]
                 if 'answers' in example:
-                    score = src.evaluation.ems(ans, example['answers'])
+                    gold = example['answers']
+                    score = src.evaluation.ems(ans, gold)
                     exactmatch.append(score)
+                    f1 = src.evaluation.f1s(ans, gold)
+                    f1s.append(f1)
+                    #rouge = src.evaluation.rouge_l(ans, gold)
+                    #rouges.append(rouge)
+
+                    # print some examples
+                    if i + k <= 50:
+                        log = f"Inputs(only including first 5 passages) = {[tokenizer.decode(ids, skip_special_tokens=True) for ids in context_ids[0,:5]]}\n\n"
+                        log += f"Answers = {gold}\n\n"
+                        log += f"Output = {ans}\n\n"
+                        log += f"EM = {score} | "
+                        log += f"F1 = {f1} | "
+                        #log += f"ROUGE-L = {rouge}"
+                        logger.info(log)
 
                 if opt.write_results:
                     fw.write(str(example['id']) + "\t" + ans + '\n')
@@ -70,12 +88,16 @@ def evaluate(model, dataset, dataloader, tokenizer, opt):
                     log += f' | average = {np.mean(exactmatch):.3f}'
                 logger.warning(log)
 
-    logger.warning(f'Process rank:{opt.global_rank}, total {total} | average = {np.mean(exactmatch):.3f}')
+                #logger.warning(f'Process rank:{opt.global_rank}, total {total} | average = {np.mean(exactmatch):.3f} | average f1 = {np.mean(f1s):.3f} | average rouge-l = {np.mean(rouges):.3f}')
+                logger.warning(f'Process rank:{opt.global_rank}, total {total} | average = {np.mean(exactmatch):.3f} | average f1 = {np.mean(f1s):.3f}')
     if opt.is_distributed:
         torch.distributed.barrier()
+    f1s, _ = src.util.weighted_average(np.mean(f1s), total, opt)
+    #rouges, _ = src.util.weighted_average(np.mean(rouges), total, opt)
+    rouges = None
     score, total = src.util.weighted_average(np.mean(exactmatch), total, opt)
-    
-    return score, total
+
+    return score, f1s, rouges, total
 
 
 if __name__ == "__main__":
@@ -103,37 +125,38 @@ if __name__ == "__main__":
 
     collator_function = src.data.Collator(opt.text_maxlength, tokenizer)
     eval_examples = src.data.load_data(
-        opt.eval_data, 
+        opt.eval_data,
         global_rank=opt.global_rank, #use the global rank and world size attibutes to split the eval set on multiple gpus
         world_size=opt.world_size
     )
     eval_dataset = src.data.Dataset(
-        eval_examples, 
-        opt.n_context, 
+        eval_examples,
+        opt.n_context,
     )
 
-    eval_sampler = SequentialSampler(eval_dataset) 
+    eval_sampler = SequentialSampler(eval_dataset)
     eval_dataloader = DataLoader(
-        eval_dataset, 
-        sampler=eval_sampler, 
+        eval_dataset,
+        sampler=eval_sampler,
         batch_size=opt.per_gpu_batch_size,
-        num_workers=20, 
+        num_workers=20,
         collate_fn=collator_function
     )
-    
+
     model_class = src.model.FiDT5
     model = model_class.from_pretrained(opt.model_path)
     model = model.to(opt.device)
 
     logger.info("Start eval")
-    exactmatch, total = evaluate(model, eval_dataset, eval_dataloader, tokenizer, opt)
+    exactmatch, f1s, rouges, total = evaluate(model, eval_dataset, eval_dataloader, tokenizer, opt)
 
-    logger.info(f'EM {100*exactmatch:.2f}, Total number of example {total}')
+    #logger.info(f'EM {100*exactmatch:.2f}, F1 {100*f1s:.2f}, ROUGE-L {100*rouges:.2f} Total number of example {total}')
+    logger.info(f'EM {100*exactmatch:.2f}, F1 {100*f1s:.2f} Total number of example {total}')
 
     if opt.write_results and opt.is_main:
         glob_path = Path(opt.checkpoint_dir) / opt.name / 'test_results'
         write_path = Path(opt.checkpoint_dir) / opt.name / 'final_output.txt'
-        src.util.write_output(glob_path, write_path) 
+        src.util.write_output(glob_path, write_path)
     if opt.write_crossattention_scores:
         src.util.save_distributed_dataset(eval_dataset.data, opt)
 
