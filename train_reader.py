@@ -12,6 +12,7 @@ import numpy as np
 from pathlib import Path
 from torch.utils.data import DataLoader, RandomSampler, DistributedSampler, SequentialSampler
 from src.options import Options
+from tqdm import tqdm
 
 import src.slurm
 import src.util
@@ -45,7 +46,7 @@ def train(model, optimizer, scheduler, step, train_dataset, eval_dataset, opt, c
     model.train()
     while step < opt.total_steps:
         epoch += 1
-        for i, batch in enumerate(train_dataloader):
+        for i, batch in enumerate(tqdm(train_dataloader)):
             step += 1
             (idx, labels, _, context_ids, context_mask) = batch
 
@@ -67,18 +68,21 @@ def train(model, optimizer, scheduler, step, train_dataset, eval_dataset, opt, c
             curr_loss += train_loss.item()
 
             if step % opt.eval_freq == 0:
-                dev_em = evaluate(model, eval_dataset, tokenizer, collator, opt)
+                dev_em, dev_f1 = evaluate(model, eval_dataset, tokenizer, collator, opt)
                 model.train()
                 if opt.is_main:
-                    if dev_em > best_dev_em:
-                        best_dev_em = dev_em
+                    #if dev_em > best_dev_em:
+                    if dev_f1 > best_dev_em:
+                        #best_dev_em = dev_em
+                        best_dev_em = dev_f1
                         src.util.save(model, optimizer, scheduler, step, best_dev_em,
                                   opt, checkpoint_path, 'best_dev')
                     log = f"{step} / {opt.total_steps} |"
                     log += f"train: {curr_loss/opt.eval_freq:.3f} |"
-                    log += f"evaluation: {100*dev_em:.2f}EM |"
+                    log += f"evaluation (EM): {100*dev_em:.2f} |"
+                    log += f"evaluation (F1): {100*dev_f1:.2f} |"
                     log += f"lr: {scheduler.get_last_lr()[0]:.5f}"
-                    logger.info(log)    
+                    logger.info(log)
                     if tb_logger is not None:
                         tb_logger.add_scalar("Evaluation", dev_em, step)
                         tb_logger.add_scalar("Training", curr_loss / (opt.eval_freq), step)
@@ -102,15 +106,16 @@ def evaluate(model, dataset, tokenizer, collator, opt):
     model.eval()
     total = 0
     exactmatch = []
+    f1s = []
     model = model.module if hasattr(model, "module") else model
     with torch.no_grad():
-        for i, batch in enumerate(dataloader):
+        for i, batch in enumerate(tqdm(dataloader)):
             (idx, _, _, context_ids, context_mask) = batch
 
             outputs = model.generate(
                 input_ids=context_ids.cuda(),
                 attention_mask=context_mask.cuda(),
-                max_length=50
+                max_length=opt.output_maxlength
             )
 
             for k, o in enumerate(outputs):
@@ -119,9 +124,21 @@ def evaluate(model, dataset, tokenizer, collator, opt):
                 score = src.evaluation.ems(ans, gold)
                 total += 1
                 exactmatch.append(score)
+                f1 = src.evaluation.f1s(ans, gold)
+                f1s.append(f1)
 
+                # print some examples
+                if i + k <= 5:
+                    log = f"Inputs(only including first 5 passages) = {[tokenizer.decode(ids, skip_special_tokens=True) for ids in context_ids[0,:5]]}\n\n"
+                    log += f"Answers = {gold}\n\n"
+                    log += f"Output = {ans}\n\n"
+                    log += f"EM = {score} | "
+                    log += f"F1 = {f1} | "
+                    logger.info(log)
+
+    f1s, _ = src.util.weighted_average(np.mean(f1s), total, opt)
     exactmatch, total = src.util.weighted_average(np.mean(exactmatch), total, opt)
-    return exactmatch
+    return exactmatch, f1s
 
 if __name__ == "__main__":
     options = Options()
@@ -148,6 +165,7 @@ if __name__ == "__main__":
         opt.is_distributed,
         checkpoint_path / 'run.log'
     )
+    logger.info(f"Is using distributed training: {opt.is_distributed}")
 
     model_name = 't5-' + opt.model_size
     model_class = src.model.FiDT5
@@ -156,10 +174,10 @@ if __name__ == "__main__":
     tokenizer = transformers.T5Tokenizer.from_pretrained(model_name)
     collator = src.data.Collator(opt.text_maxlength, tokenizer, answer_maxlength=opt.answer_maxlength)
 
-    # use golbal rank and world size to split the eval set on multiple gpus
+    # use global rank and world size to split the eval set on multiple gpus
     train_examples = src.data.load_data(
-        opt.train_data, 
-        global_rank=opt.global_rank, 
+        opt.train_data,
+        global_rank=opt.global_rank,
         world_size=opt.world_size,
     )
     train_dataset = src.data.Dataset(train_examples, opt.n_context)
@@ -170,6 +188,7 @@ if __name__ == "__main__":
         world_size=opt.world_size,
     )
     eval_dataset = src.data.Dataset(eval_examples, opt.n_context)
+    logger.info("loaded data")
 
     if not checkpoint_exists and opt.model_path == "none":
         t5 = transformers.T5ForConditionalGeneration.from_pretrained(model_name)
@@ -184,6 +203,7 @@ if __name__ == "__main__":
             src.util.load(model_class, load_path, opt, reset_params=False)
         logger.info(f"Model loaded from {load_path}")
     else:
+        logger.info(f"Model path is not none")
         model, optimizer, scheduler, opt_checkpoint, step, best_dev_em = \
             src.util.load(model_class, opt.model_path, opt, reset_params=True)
         logger.info(f"Model loaded from {opt.model_path}")
@@ -191,6 +211,7 @@ if __name__ == "__main__":
     model.set_checkpoint(opt.use_checkpoint)
 
     if opt.is_distributed:
+        logger.info("Is ditributed")
         model = torch.nn.parallel.DistributedDataParallel(
             model,
             device_ids=[opt.local_rank],
