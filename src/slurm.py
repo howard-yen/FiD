@@ -1,6 +1,6 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 # All rights reserved.
-# 
+#
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -51,11 +51,11 @@ def init_distributed_mode(params):
         - global_rank
         - world_size
     """
-    params.is_slurm_job = 'SLURM_JOB_ID' in os.environ 
-    has_local_rank = hasattr(params, 'local_rank')
+    params.is_slurm_job = 'SLURM_JOB_ID' in os.environ
+    has_local_rank = hasattr(params, 'local_rank') and int(os.environ["SLURM_GPUS_ON_NODE"]) > 1
 
     # SLURM job
-    if params.is_slurm_job and has_local_rank:
+    if params.is_slurm_job and has_local_rank and False:
 
         assert params.local_rank == -1   # on the cluster, this is handled by SLURM
 
