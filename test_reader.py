@@ -151,7 +151,7 @@ if __name__ == "__main__":
     exactmatch, f1s, rouges, total = evaluate(model, eval_dataset, eval_dataloader, tokenizer, opt)
 
     #logger.info(f'EM {100*exactmatch:.2f}, F1 {100*f1s:.2f}, ROUGE-L {100*rouges:.2f} Total number of example {total}')
-    logger.info(f'EM {100*exactmatch:.2f}, F1 {100*f1s:.2f} Total number of example {total}')
+    logger.info(f'EM {100*exactmatch:.2f}, F1 {100*f1s:.2f}, Total number of example {total}')
 
     if opt.write_results and opt.is_main:
         glob_path = Path(opt.checkpoint_dir) / opt.name / 'test_results'

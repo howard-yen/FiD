@@ -1,32 +1,35 @@
 retriever-name:
-ifeq ($(RETRIEVER),)
-    echo "Please set RETRIEVER before training (e.g., RETRIEVER=dpr-all)"; exit 2;
-endif
+  ifeq ($(RETRIEVER),)
+	echo "Please set RETRIEVER before training (e.g., RETRIEVER=dpr-all)"; exit 2;
+  endif
 
 model-name:
-ifeq ($(MODEL_NAME),)
-    echo "Please set MODEL_NAME before training (e.g., MODEL_NAME=test)"; exit 2;
-endif
+  ifeq ($(MODEL_NAME),)
+	echo "Please set MODEL_NAME before training (e.g., MODEL_NAME=test)"; exit 2;
+  endif
 
 data-config: retriever-name
-	$(eval DATA_DIR=data/$(RETRIEVER))
+	$(eval DATA_DIR=/projects/DANQIC/hyen/FiD/data/$(RETRIEVER))
 	$(eval TRAIN_DATA=train_all.json)
 	$(eval DEV_DATA=dev_all.json)
 	$(eval TEST_DATA=test_all.json)
 
 model-config: model-name
 	$(eval MODEL_SIZE=base)
+	$(eval LR=0.00005)
 	$(eval N_CONTEXT=100)
 	$(eval MAIN_PORT=10001)
 	$(eval OUTPUT_LENGTH=350)
-	$(eval TOTAL_STEPS=10000)
+	$(eval TOTAL_STEPS=15000)
+	$(eval WARMUP_STEPS=1000)
 	$(eval EVAL_STEPS=2000)
 	$(eval SAVE_STEPS=4000)
 	$(eval GA=1)
+	$(eval BS=1)
 
 convert-data: data-config
 	python scripts/convert_data.py \
-		--pred_file $(PRED_DIR) \
+		--pred_file $(PRED_FILE) \
 		--output_file $(DATA_DIR)/$(OUTPUT_FILE)
 
 merge-data: data-config
@@ -43,14 +46,15 @@ train-reader: data-config model-config
 		--model_size $(MODEL_SIZE) \
 		--train_data $(DATA_DIR)/$(TRAIN_DATA) \
 		--eval_data $(DATA_DIR)/$(DEV_DATA) \
-		--per_gpu_batch_size 1 \
+		--per_gpu_batch_size $(BS) \
 		--n_context $(N_CONTEXT) \
-		--lr 0.0001 \
+		--lr $(LR) \
 		--optim adamw \
 		--scheduler fixed \
 		--weight_decay 0.01 \
 		--text_maxlength 250 \
 		--total_step $(TOTAL_STEPS) \
+		--warmup_step $(WARMUP_STEPS) \
 		--accumulation_steps $(GA) \
 		--eval_freq $(EVAL_STEPS) \
 		--save_freq $(SAVE_STEPS) \
@@ -66,14 +70,15 @@ train-reader-multi: data-config model-config
 		--model_size $(MODEL_SIZE) \
 		--train_data $(DATA_DIR)/$(TRAIN_DATA) \
 		--eval_data $(DATA_DIR)/$(DEV_DATA) \
-		--per_gpu_batch_size 1 \
+		--per_gpu_batch_size $(BS) \
 		--n_context $(N_CONTEXT) \
-		--lr 0.0001 \
+		--lr $(LR) \
 		--optim adamw \
 		--scheduler fixed \
 		--weight_decay 0.01 \
 		--text_maxlength 250 \
 		--total_step $(TOTAL_STEPS) \
+		--warmup_step $(WARMUP_STEPS) \
 		--accumulation_steps $(GA) \
 		--eval_freq $(EVAL_STEPS) \
 		--save_freq $(SAVE_STEPS) \
