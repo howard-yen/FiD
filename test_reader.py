@@ -33,7 +33,8 @@ def evaluate(model, dataset, dataloader, tokenizer, opt):
     f1s = []
     rouges = []
     if opt.write_results:
-        write_path = Path(opt.checkpoint_dir) / opt.name / 'test_results'
+        data_name = opt.eval_data.split(".")[0].split("/")[-1]
+        write_path = Path(opt.checkpoint_dir) / opt.name / f'test_results_{data_name}'
         fw = open(write_path / ('%d.txt'%opt.global_rank), 'a')
     with torch.no_grad():
         for i, batch in enumerate(tqdm(dataloader)):
@@ -115,7 +116,8 @@ if __name__ == "__main__":
         torch.distributed.barrier()
     dir_path.mkdir(parents=True, exist_ok=True)
     if opt.write_results:
-        (dir_path / 'test_results').mkdir(parents=True, exist_ok=True)
+        data_name = opt.eval_data.split(".")[0].split("/")[-1]
+        (dir_path / f'test_results_{data_name}').mkdir(parents=True, exist_ok=True)
     logger = src.util.init_logger(opt.is_main, opt.is_distributed, Path(opt.checkpoint_dir) / opt.name / 'run.log')
     if not directory_exists and opt.is_main:
         options.print_options(opt)
@@ -154,8 +156,12 @@ if __name__ == "__main__":
     logger.info(f'EM {100*exactmatch:.2f}, F1 {100*f1s:.2f}, Total number of example {total}')
 
     if opt.write_results and opt.is_main:
-        glob_path = Path(opt.checkpoint_dir) / opt.name / 'test_results'
-        write_path = Path(opt.checkpoint_dir) / opt.name / 'final_output.txt'
+        glob_path = Path(opt.checkpoint_dir) / opt.name / f'test_results_{data_name}'
+        write_path = Path(opt.checkpoint_dir) / opt.name / f'final_output_{data_name}.txt'
+        print(opt.eval_data.split("."))
+        print("glob and write")
+        print(glob_path)
+        print(write_path)
         src.util.write_output(glob_path, write_path)
     if opt.write_crossattention_scores:
         src.util.save_distributed_dataset(eval_dataset.data, opt)

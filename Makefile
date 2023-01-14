@@ -109,5 +109,5 @@ test-reader-multi: data-config model-config
 		--name $(MODEL_NAME) \
 		--output_maxlength $(OUTPUT_LENGTH) \
 		--checkpoint_dir checkpoint/ \
-		--main_port -1 #--write_results
+		--main_port -1 --write_results
 

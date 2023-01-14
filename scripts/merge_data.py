@@ -8,11 +8,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     preds = (
-        ["train_1.json", "train_2.json", "train_3.json", "train_4.json",],
-        ["dev_1.json", "dev_2.json", "dev_3.json", "dev_4.json",],
-        ["test_1.json", "test_2.json", "test_3.json", "test_4.json",],
+        ["train_short.json", "train_medium.json", "train_long.json", "train_yesno.json",],
+        ["dev_short.json", "dev_medium.json", "dev_long.json", "dev_yesno.json",],
+        ["test_short.json", "test_medium.json", "test_long.json", "test_yesno.json",],
     )
-    out_names = ("train.json", "dev.json", "test.json")
+    out_names = ("train_all.json", "dev_all.json", "test_all.json")
 
     for p, name in zip(preds, out_names):
         output = []
