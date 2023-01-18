@@ -71,7 +71,8 @@ def save(model, optimizer, scheduler, step, best_eval_metric, opt, dir_path, nam
 
 def load(model_class, dir_path, opt, reset_params=False):
     epoch_path = os.path.realpath(dir_path)
-    epoch_path = epoch_path.replace(f"/checkpoint/{opt.name}/checkpoint/", "/") # temp fix
+    if not os.path.exists(epoch_path):
+        epoch_path = epoch_path.replace(f"/checkpoint/{opt.name}/checkpoint/", "/") # temp fix
     optimizer_path = os.path.join(epoch_path, "optimizer.pth.tar")
     logger.info("Loading %s" % epoch_path)
     model = model_class.from_pretrained(epoch_path)

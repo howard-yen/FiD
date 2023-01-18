@@ -198,6 +198,7 @@ if __name__ == "__main__":
         optimizer, scheduler = src.util.set_optim(opt, model)
         step, best_dev_em = 0, 0.0
     elif opt.model_path == "none":
+        print(checkpoint_path)
         load_path = checkpoint_path / 'checkpoint' / 'latest'
         model, optimizer, scheduler, opt_checkpoint, step, best_dev_em = \
             src.util.load(model_class, load_path, opt, reset_params=False)

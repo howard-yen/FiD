@@ -47,6 +47,7 @@ def evaluate(model, dataset, dataloader, tokenizer, opt):
                 input_ids=context_ids.cuda(),
                 attention_mask=context_mask.cuda(),
                 max_length=opt.output_maxlength,
+                num_beams=opt.num_beams,
             )
 
             if opt.write_crossattention_scores:
